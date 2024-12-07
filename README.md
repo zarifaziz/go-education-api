@@ -15,6 +15,16 @@ A RESTful API service built with Go (Golang) for managing educational resources.
 - MongoDB
 - Git
 
-## 🛠️ Installation
+## 🛠️ Getting Started
 
-1. Clone the repository 
+```
+cd go-education-api
+
+go mod download
+
+MONGODB_URI=your_mongodb_connection_string
+PORT=8080
+
+# start the server
+go run main.go db.go
+```
