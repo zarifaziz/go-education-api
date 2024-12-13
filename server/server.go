@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"education-api/api/models"
+	"education-api/pkg/worker"
+	"log"
 	"net/http"
 	"time"
 
@@ -12,16 +14,30 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
-var client *mongo.Client
-var coursesCollection *mongo.Collection
-var studentsCollection *mongo.Collection
+var (
+	client             *mongo.Client
+	coursesCollection  *mongo.Collection
+	studentsCollection *mongo.Collection
+	jobQueue           = make(chan worker.Job, 100)
+	resultChan         = make(chan worker.Result, 100)
+)
 
 func Start() {
 	client = connectDB()
 	defer client.Disconnect(context.Background())
 
-	coursesCollection = client.Database("education").Collection("courses")
-	studentsCollection = client.Database("education").Collection("students")
+	db := client.Database("education")
+	coursesCollection = db.Collection("courses")
+	studentsCollection = db.Collection("students")
+
+	// Initialize workers
+	for i := 1; i <= 3; i++ {
+		w := worker.NewWorker(i, jobQueue, resultChan, db)
+		w.Start(context.Background())
+	}
+
+	// Start result handler
+	go handleResults()
 
 	// Initialize Gin router
 	r := gin.Default()
@@ -37,6 +53,16 @@ func Start() {
 	r.Run(":8080")
 }
 
+func handleResults() {
+	for result := range resultChan {
+		if result.Error != nil {
+			log.Printf("Job %s failed: %v", result.JobType, result.Error)
+			continue
+		}
+		log.Printf("Job %s completed successfully", result.JobType)
+	}
+}
+
 func createCourse(c *gin.Context) {
 	var course models.Course
 	if err := c.ShouldBindJSON(&course); err != nil {
@@ -47,13 +73,15 @@ func createCourse(c *gin.Context) {
 	course.ID = primitive.NewObjectID()
 	course.CreatedAt = time.Now()
 
-	_, err := coursesCollection.InsertOne(context.Background(), course)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error creating course"})
-		return
+	jobQueue <- worker.Job{
+		Type:    "course_creation",
+		Payload: course,
 	}
 
-	c.JSON(http.StatusCreated, course)
+	c.JSON(http.StatusAccepted, gin.H{
+		"message": "Course creation in progress",
+		"id":      course.ID,
+	})
 }
 
 func getCourses(c *gin.Context) {
@@ -127,40 +155,20 @@ func enrollStudent(c *gin.Context) {
 		return
 	}
 
-	// Verify course exists
-	var course models.Course
-	err = coursesCollection.FindOne(context.Background(), bson.M{"_id": courseID}).Decode(&course)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Course not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error verifying course"})
-		return
-	}
-
-	// Update student's enrolled courses
-	update := bson.M{
-		"$addToSet": bson.M{
-			"enrolled_courses": courseID,
+	jobQueue <- worker.Job{
+		Type: "student_enrollment",
+		Payload: struct {
+			StudentID primitive.ObjectID
+			CourseID  primitive.ObjectID
+		}{
+			StudentID: studentID,
+			CourseID:  courseID,
 		},
 	}
 
-	result, err := studentsCollection.UpdateOne(
-		context.Background(),
-		bson.M{"_id": studentID},
-		update,
-	)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error enrolling student"})
-		return
-	}
-
-	if result.MatchedCount == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Student not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Student enrolled successfully"})
+	c.JSON(http.StatusAccepted, gin.H{
+		"message":   "Enrollment in progress",
+		"studentId": studentID,
+		"courseId":  courseID,
+	})
 }
