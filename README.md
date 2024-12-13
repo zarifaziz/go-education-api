@@ -64,6 +64,7 @@ Start MongoDB:
 ```bash
 mongod --dbpath ~/data/db
 ```
+OR make sure a deployment is running at `mongodb://localhost:27017`
 
 Available CLI commands:
 
