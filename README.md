@@ -18,7 +18,7 @@ A RESTful API service built with Go (Golang) for managing educational resources.
 
 ## 🛠️ Installation
 
-1. Clone the repository
+1. Clone the repository.
 
 ```bash
 git clone https://github.com/zarifaziz/go-education-api.git
