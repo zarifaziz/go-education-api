@@ -22,7 +22,7 @@ A RESTful API service built with Go (Golang) for managing educational resources.
 
 ```bash
 git clone https://github.com/zarifaziz/go-education-api.git
-cd education-api
+cd go-education-api
 ```
 
 2. Install dependencies
